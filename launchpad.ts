@@ -43,7 +43,7 @@ describe("Launchpad", () => {
     const connection = provider.connection;
 
     try {
-      const targetAmount = new BN(2 * LAMPORTS_PER_SOL); // 2 SOL in lamports as BN
+      const targetAmount = new BN(55 * LAMPORTS_PER_SOL); // 2 SOL in lamports as BN
 
       await program.methods
         .initTargetConfig(targetAmount)
@@ -780,11 +780,8 @@ describe("Launchpad", () => {
       console.log("Account not found");
     }
 
-    console.log("Test1");
     // Step 7: Verify target config exists
     await program.account.targetConfig.fetch(targetConfigPda);
-
-    console.log("Test2");
     // 1. Get the user's meme token account (user_meme)
     const userMemeTokenAccount = await getOrCreateAssociatedTokenAccount(
       connection,
@@ -792,7 +789,6 @@ describe("Launchpad", () => {
       memeMint,
       payer.publicKey
     );
-    console.log("Test2.1");
     // 2. Get the user's quote token account (user_quote)
     const userQuoteTokenAccount = await getOrCreateAssociatedTokenAccount(
       connection,
@@ -801,13 +797,27 @@ describe("Launchpad", () => {
       payer.publicKey
     );
 
-    console.log("Test3");
-    const userSolTokenAccount = await wrapSol(connection, payer, 4);
+    let amount = 56;
+    console.log("Testing Swaping Wsol for Meme with amount: ", amount);
+
+    const userSolTokenAccount = await wrapSol(connection, payer, amount);
     console.log("Token account wrapped sol: ", userSolTokenAccount);
+
+    const poolAccountBefore = await program.account.boundPool.fetch(poolPda);
+    console.log(
+      "Pool meme reserve before swap: ",
+      poolAccountBefore.memeReserve.tokens.toString()
+    );
+    console.log(
+      "Pool quote reserve before swap: ",
+      poolAccountBefore.quoteReserve.tokens.toString()
+    );
+    console.log("Pool locked: ", poolAccountBefore.locked);
+
     // Amount to Swap - Make sure to trigger migration by reaching threshold
-    let coinInAmount = new BN(3 * LAMPORTS_PER_SOL);
+    let firstSwap = 55;
+    let coinInAmount = new BN(firstSwap * LAMPORTS_PER_SOL);
     let coinXMinValue = new BN(0);
-    console.log("Test4");
     await program.methods
       .swapY(coinInAmount, coinXMinValue)
       .accounts({
@@ -820,8 +830,41 @@ describe("Launchpad", () => {
       .rpc();
 
     // Check if the bonding curve is locked
-    const poolAccount = await program.account.boundPool.fetch(poolPda);
-    assert(poolAccount.locked, "Pool should be locked");
+    const poolAccountAfter = await program.account.boundPool.fetch(poolPda);
+    console.log(
+      "Pool meme reserve after first swap: ",
+      poolAccountAfter.memeReserve.tokens.toString()
+    );
+    console.log(
+      "Pool quote reserve after first swap: ",
+      poolAccountAfter.quoteReserve.tokens.toString()
+    );
+
+    let secondSwap = 1;
+    console.log("Testing Swaping Meme for Wsol with amount: ", secondSwap);
+    coinInAmount = new BN(secondSwap * LAMPORTS_PER_SOL);
+    await program.methods
+      .swapY(coinInAmount, coinXMinValue)
+      .accounts({
+        pool: poolPda,
+        quoteVault: quoteVault,
+        memeVault: memeVault,
+        userMeme: userMemeTokenAccount.address,
+        userSol: userQuoteTokenAccount.address,
+      })
+      .rpc();
+    const poolAccountAfterSecond = await program.account.boundPool.fetch(
+      poolPda
+    );
+    console.log("Pool locked: ", poolAccountAfterSecond.locked);
+    console.log(
+      "Pool meme reserve after second swap: ",
+      poolAccountAfterSecond.memeReserve.tokens.toString()
+    );
+    console.log(
+      "Pool quote reserve after second swap: ",
+      poolAccountAfterSecond.quoteReserve.tokens.toString()
+    );
 
     // console.log("Setting up Raydium migrate test...");
 
@@ -839,47 +882,53 @@ describe("Launchpad", () => {
       "D4FPEruKEHrG5TenZ2mpDGEfu1iUvTiqBxvpU8HLBvC2"
     );
     // Derive Raydium Authority PDA
+    const POOL_AUTH_SEED = Buffer.from(
+      anchor.utils.bytes.utf8.encode("vault_and_lp_mint_auth_seed")
+    );
     const [raydiumAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("amm_authority")],
+      [POOL_AUTH_SEED],
       cpSwapProgram
     );
     // Derive Raydium Pool State PDA
+    const POOL_SEED = Buffer.from(anchor.utils.bytes.utf8.encode("pool"));
+
     const [raydiumPoolState] = PublicKey.findProgramAddressSync(
       [
-        Buffer.from("pool"),
+        POOL_SEED,
         ammConfig.toBuffer(),
-        memeMint.toBuffer(), // token_0 (smaller key)
-        NATIVE_MINT.toBuffer(), // token_1 (larger key)
+        NATIVE_MINT.toBuffer(), // token_0
+        memeMint.toBuffer(), // token_1
       ],
       cpSwapProgram
     );
     // Derive Raydium LP Mint PDA
+    const POOL_LPMINT_SEED = Buffer.from(
+      anchor.utils.bytes.utf8.encode("pool_lp_mint")
+    );
     const [raydiumLpMint] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pool_lp_mint"), raydiumPoolState.toBuffer()],
+      [POOL_LPMINT_SEED, raydiumPoolState.toBuffer()],
       cpSwapProgram
     );
     // Derive Raydium Token Vaults
+    const POOL_VAULT_SEED = Buffer.from(
+      anchor.utils.bytes.utf8.encode("pool_vault")
+    );
     const [token0Vault] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("pool_vault"),
-        raydiumPoolState.toBuffer(),
-        memeMint.toBuffer(),
-      ],
+      [POOL_VAULT_SEED, raydiumPoolState.toBuffer(), NATIVE_MINT.toBuffer()],
       cpSwapProgram
     );
 
     const [token1Vault] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("pool_vault"),
-        raydiumPoolState.toBuffer(),
-        NATIVE_MINT.toBuffer(),
-      ],
+      [POOL_VAULT_SEED, raydiumPoolState.toBuffer(), memeMint.toBuffer()],
       cpSwapProgram
     );
 
     // Derive Observation State PDA
+    const ORACLE_SEED = Buffer.from(
+      anchor.utils.bytes.utf8.encode("observation")
+    );
     const [observationState] = PublicKey.findProgramAddressSync(
-      [Buffer.from("observation"), raydiumPoolState.toBuffer()],
+      [ORACLE_SEED, raydiumPoolState.toBuffer()],
       cpSwapProgram
     );
 
@@ -907,21 +956,29 @@ describe("Launchpad", () => {
       const migrateTx = await program.methods
         .migrateToRaydium()
         .accounts({
-          memeMint: memeMint,
-          quoteMint: NATIVE_MINT,
-          memeVault: memeVault,
-          quoteVault: quoteVault,
+          pool: poolPda,
+          token0Mint: NATIVE_MINT,
+          token1Mint: memeMint,
+          poolToken0Vault: quoteVault,
+          poolToken1Vault: memeVault,
           ammConfig: ammConfig,
-          creatorMemeAccount: userMemeTokenAccount.address,
-          creatorQuoteAccount: userQuoteTokenAccount.address,
+          creatorToken0Account: userQuoteTokenAccount.address,
+          creatorToken1Account: userMemeTokenAccount.address,
           creatorLpToken: creatorLpToken,
         })
         .accountsPartial({
+          raydiumAuthority: raydiumAuthority,
+          raydiumPoolState: raydiumPoolState,
+          raydiumLpMint: raydiumLpMint,
+          token0Vault: token0Vault,
+          token1Vault: token1Vault,
           createPoolFee: createPoolFee,
+          observationState: observationState,
+          cpSwapProgram: cpSwapProgram,
         })
         .rpc();
 
-      console.log("✅ Migration successful! Transaction hash:", migrateTx);
+      console.log("✅ Migration successful! Transaction hash:");
 
       // Verify migration
       const updatedPool = await program.account.boundPool.fetch(poolPda);
