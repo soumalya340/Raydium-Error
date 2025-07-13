@@ -30,9 +30,10 @@ pub struct MigrateToRaydium<'info> {
     )]
     pub pool: Account<'info, BoundPool>,
 
-    /// Meme token mint (must be smaller key than quote_mint for CPMM)
-    #[account(mut,
+    #[account(
+        mut,
         constraint = meme_mint.key() == pool.meme_reserve.mint @ AmmError::InvalidAccountInput,
+        constraint = meme_mint.key() < quote_mint.key() @ AmmError::InvalidTokenOrder
     )]
     pub meme_mint: Account<'info, Mint>,
 
